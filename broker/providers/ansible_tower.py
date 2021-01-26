@@ -249,7 +249,13 @@ class AnsibleTower(Provider):
         logger.debug(
             f"Launching {subject}: {url_parser.urljoin(AT_URL, str(target.url))}"
         )
-        job = target.launch(payload={"extra_vars": str(kwargs).replace("--", "")})
+        if (running_inventory := kwargs.pop("--at_inventory")):
+            if not (inventory_id := self._parse_inventory_id(running_inventory)):
+                return
+            job = target.launch(payload={"extra_vars": str(kwargs).replace("--", ""), "inventory": inventory_id})
+        else:
+            logger.debug(f"No Ansible Tower inventory explicitly set, using inventory defined in the template")
+            job = target.launch(payload={"extra_vars": str(kwargs).replace("--", "")})
         job_number = job.url.rstrip("/").split("/")[-1]
         job_ui_url = url_parser.urljoin(AT_URL, f"/#/{subject}s/{job_number}")
         logger.info(
@@ -335,3 +341,18 @@ class AnsibleTower(Provider):
 
     def release(self, name):
         return self.execute(workflow=RELEASE_WORKFLOW, source_vm=name)
+
+    def _parse_inventory_id(self, inventory_name):
+        if (inventory_info := self.v2.inventory.get(search=inventory_name)):
+            if inventory_info.count > 1:
+                logger.error(f"Ambigious AnsibleTower inventory name")
+                result = 0
+            elif inventory_info.count == 1:
+                inv_struct = inventory_info.results.pop()
+                result = inv_struct.id
+            else:
+                logger.error(f"Unknown AnsibleTower inventory")
+                result = 0
+        return result
+
+
